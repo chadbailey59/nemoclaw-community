@@ -21,6 +21,23 @@ from .denials import Deduplicator, Denial, DenialWatcher, ResearchScope
 
 Choice = Literal["approved", "rejected", "unclear"]
 
+# What the agent is told once a source it wanted is finally open.
+#
+# Without this the approval is wasted. Observed live: the agent hit arxiv.org
+# four times in 200ms, treated the denials as final, and finished its run seven
+# seconds before the operator said yes. The policy changed correctly and no
+# longer mattered, because nothing told the agent the world had moved.
+#
+# This lives here rather than with the Pipecat worker that sends it: it is what
+# the gatekeeper wants said, and keeping it here means `gatekeeper/` stays
+# importable - and testable - without Pipecat installed.
+RESUME_TEMPLATE = (
+    "{host} is now open to you. Fetch it and continue the research you were "
+    "already doing; do not start over, and do not repeat work you have "
+    "finished. If you had set that line of inquiry aside because it was "
+    "blocked, pick it back up now and fold what you find into your answer."
+)
+
 _AFFIRMATIVE = {
     "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "approve", "approved",
     "allow", "allow it", "do it", "go ahead", "go", "fine", "open it", "let it",

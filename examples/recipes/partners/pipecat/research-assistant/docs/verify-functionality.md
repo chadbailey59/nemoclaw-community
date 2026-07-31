@@ -3,18 +3,47 @@
 Three levels, cheapest first. The unit tests need no sandbox; the scripted
 check needs a sandbox but no audio; the voice check needs both.
 
-## 1. Unit tests (no sandbox, no credentials)
+## 1. Unit tests (no sandbox, no credentials, no virtualenv)
 
 ```console
 $ cd examples/recipes/partners/pipecat/research-assistant
-$ python -m pytest tests -q
+$ python3 -m pytest tests -q
+61 passed
 ```
 
-Expect all tests to pass. These cover the OCSF parser against a denial line
-captured verbatim from a live gateway, the never-allow guard, the spoken-answer
-reader, and the ask/answer loop against a fake sandbox.
+`pytest` is the only requirement. Not `pytest-asyncio` — coroutine tests are
+driven through a small `run()` helper — and not Pipecat, because nothing under
+`tests/` imports the voice loop. If a test ever fails with
+`ModuleNotFoundError: No module named 'loguru'`, something has crossed that
+boundary and belongs on the `gatekeeper` side of it.
 
-No `pytest-asyncio` is required; coroutine tests run on plain `pytest`.
+What they cover:
+
+| Area | What is checked |
+| --- | --- |
+| OCSF parsing | Allowed and denied events, in both shapes the gateway emits, against lines captured verbatim from a live sandbox. |
+| Never-allow guard | Loopback, link-local, private, `.internal`, and shell metacharacters are refused however they arrive. |
+| Spoken answers | Only an unambiguous affirmative approves; ambiguity opens nothing. |
+| Consent integrity | One question outstanding at a time, and an answer for the wrong host opens nothing. |
+| Approval mechanics | `--binary` scoping and "loaded, not merely submitted". |
+| Citation audit | Sources credited but never contacted are flagged; sources genuinely tried and denied are not. |
+| Shipped config | The baseline policy still carries a `binaries` block, without which it grants nothing. |
+
+To run one area:
+
+```console
+$ python3 -m pytest tests/test_audit.py -q                       # the citation audit
+$ python3 -m pytest tests -q -k "wrong_host or one_question"     # consent integrity
+$ python3 -m pytest tests -q -k never_contacted                  # claimed but never fetched
+```
+
+The two worth knowing by name, because each was written after the live run
+that exposed the bug:
+
+- `test_an_answer_for_the_wrong_host_opens_nothing` — the bot once asked about
+  one host and opened another.
+- `test_claiming_to_have_tried_a_source_never_contacted_is_flagged` — an answer
+  said it had attempted arXiv when the gateway saw no connection to it.
 
 ## 2. The boundary, without audio
 

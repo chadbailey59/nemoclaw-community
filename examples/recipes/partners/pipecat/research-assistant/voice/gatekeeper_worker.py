@@ -27,29 +27,17 @@ from pipecat.pipeline.job_decorator import job
 from pipecat.workers.base_worker import BaseWorker
 
 from gatekeeper.audit import audit_answer
-from gatekeeper.service import Gatekeeper
+from gatekeeper.service import RESUME_TEMPLATE, Gatekeeper
 from voice.config import AGENT_LOOP_WORKER
 
 GATEKEEPER_WORKER = "gatekeeper"
 
-# What the agent is told once a source it wanted is finally open.
-#
-# Without this the approval is wasted. Observed live: the agent hit arxiv.org
-# four times in 200ms, treated the denials as final, and finished its run seven
-# seconds before the operator said yes. The policy changed correctly and no
-# longer mattered, because nothing told the agent the world had moved.
-#
-# AgentWorker.run already does the right thing with this in both states: it
+# AgentWorker.run does the right thing with RESUME_TEMPLATE in both states: it
 # steers a run that is still going, and starts a fresh one in the same session
 # if the agent has already stopped. OpenClaw session continuity means a new run
-# still has the earlier research in context, so this reads as "carry on", not
-# "start over".
-RESUME_TEMPLATE = (
-    "{host} is now open to you. Fetch it and continue the research you were "
-    "already doing; do not start over, and do not repeat work you have "
-    "finished. If you had set that line of inquiry aside because it was "
-    "blocked, pick it back up now and fold what you find into your answer."
-)
+# still has the earlier research in context, so it reads as "carry on" rather
+# than "start over". The text itself lives in gatekeeper.service, which stays
+# importable without Pipecat.
 
 # The voice model is told how to speak the question and, more importantly,
 # what it must not do with it: it relays a decision, it does not make one.

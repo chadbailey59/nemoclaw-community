@@ -349,7 +349,7 @@ def test_resume_message_tells_the_agent_to_continue_not_restart():
     seconds before the operator approved it. The policy changed correctly and
     changed nothing, because the agent was never told.
     """
-    from voice.gatekeeper_worker import RESUME_TEMPLATE
+    from gatekeeper.service import RESUME_TEMPLATE
 
     message = RESUME_TEMPLATE.format(host="arxiv.org")
     assert "arxiv.org is now open" in message
