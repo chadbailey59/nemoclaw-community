@@ -123,6 +123,35 @@ def test_interpret(text, choice):
     assert interpret(text) == choice
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Yes. That's fine.",   # said to a live bot; was read as unclear
+        "Yes.",
+        "yes, go ahead",
+        "Sure. Allow it.",
+        "Okay!",
+        "yeah; that's fine",
+    ],
+)
+def test_punctuation_does_not_hide_a_plain_yes(text):
+    """Observed live: "Yes. That's fine." opened nothing.
+
+    The affirmative carried a full stop, only a following space or comma was
+    handled, and the operator heard their clear approval reported back as
+    "developer.nvidia.com remains blocked". Refusing to act on genuine
+    ambiguity is the point; failing to parse ordinary punctuation is not.
+    """
+    assert interpret(text) == "approved"
+
+
+@pytest.mark.parametrize(
+    "text", ["No. Leave it.", "No!", "nope, skip that one", "Don't. Not that one."]
+)
+def test_punctuation_does_not_hide_a_plain_no(text):
+    assert interpret(text) == "rejected"
+
+
 def test_only_a_clear_yes_opens_a_source():
     for text in ("maybe", "I think so?", "which one", "not sure", "hold on"):
         assert interpret(text) != "approved", text
@@ -213,6 +242,61 @@ def test_approval_of_an_unsafe_host_is_refused_out_loud():
             kinds.append(keeper.events.get_nowait())
         assert any(e.kind == "error" and e.data.get("refused") for e in kinds)
     run(main())
+
+def test_a_successful_approval_is_marked_expected_and_a_failed_one_is_not():
+    """Silence on success, speech on trouble.
+
+    The voice loop reports only what did not go the way the operator asked.
+    Confirming every approval out loud is noise, and noise is how someone
+    learns to stop listening to the one report that matters -- an approval
+    that did not take, where they believe a source is open and it is not.
+    """
+    async def main():
+        approver = FakeApprover()
+        keeper = Gatekeeper(FakeWatcher([REAL_DENIAL]), approver)
+        await keeper.run()
+        await keeper.answer("yes")
+
+        outcomes = []
+        while not keeper.events.empty():
+            outcomes.append(keeper.events.get_nowait())
+        resolved = [e for e in outcomes if e.kind == "resolved"]
+        assert resolved and all(e.data.get("expected") for e in resolved)
+    run(main())
+
+
+def test_an_approval_that_does_not_take_is_marked_unexpected():
+    async def main():
+        class FailingApprover(FakeApprover):
+            async def allow(self, host, port=443, binary=None):
+                # Submitted but never loaded: the policy did not change.
+                return ApprovalOutcome(f"{host}:{port}", False, "version 9 submitted")
+
+        keeper = Gatekeeper(FakeWatcher([REAL_DENIAL]), FailingApprover())
+        await keeper.run()
+        await keeper.answer("yes")
+
+        outcomes = []
+        while not keeper.events.empty():
+            outcomes.append(keeper.events.get_nowait())
+        resolved = [e for e in outcomes if e.kind == "resolved"]
+        assert resolved and not any(e.data.get("expected") for e in resolved)
+    run(main())
+
+
+def test_a_refusal_is_expected_and_stays_quiet():
+    async def main():
+        keeper = Gatekeeper(FakeWatcher([REAL_DENIAL]), FakeApprover())
+        await keeper.run()
+        await keeper.answer("no")
+
+        outcomes = []
+        while not keeper.events.empty():
+            outcomes.append(keeper.events.get_nowait())
+        resolved = [e for e in outcomes if e.kind == "resolved"]
+        assert resolved and all(e.data.get("expected") for e in resolved)
+    run(main())
+
 
 def test_answering_with_nothing_pending_is_a_no_op():
     async def main():

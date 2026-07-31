@@ -272,32 +272,23 @@ class VoiceBotWorker(PipelineWorker):
                     )
                 )
                 return
-            if response.get("kind") == "no_question":
-                content = (
-                    "There was no source waiting on approval, so nothing "
-                    "changed. Tell the user that briefly. "
-                    f"{PLAIN_SPOKEN_OUTPUT_INSTRUCTION}"
-                )
-            elif response.get("applied"):
-                resumed = (
-                    " The agent has gone back to that source and is still working, "
-                    "so do not present anything as a final answer yet."
-                    if response.get("resumed")
-                    else ""
-                )
-                content = (
-                    f"{response.get('host')} is now open to the research agent. "
-                    f"Say so in one short sentence.{resumed} "
-                    f"{PLAIN_SPOKEN_OUTPUT_INSTRUCTION}"
-                )
-            else:
-                # Covers a spoken "no" and a refused or failed approval. Never
-                # imply a source opened when the policy did not actually change.
-                content = (
-                    f"{response.get('host')} was left blocked. Say so in one "
-                    f"short sentence. Backend note: {response.get('status', '')} "
-                    f"{PLAIN_SPOKEN_OUTPUT_INSTRUCTION}"
-                )
+            # The gatekeeper's event stream already speaks anything that went
+            # wrong, through the watch job. Narrating outcomes here as well is
+            # how the same sentence got said twice: "developer.nvidia.com
+            # remains blocked" landed once from each path, four seconds apart.
+            #
+            # An approval that worked says nothing at all. The user asked for
+            # it, it happened, the agent went back to the source and is still
+            # working. Confirming that out loud is noise between them and the
+            # answer they actually wanted.
+            if response.get("kind") != "no_question":
+                return
+            content = (
+                "The user answered a question about a source, but nothing was "
+                "waiting on approval, so their answer changed nothing. Tell "
+                "them that briefly — it is unexpected and worth flagging. "
+                f"{PLAIN_SPOKEN_OUTPUT_INSTRUCTION}"
+            )
             await self.queue_frame(
                 LLMMessagesAppendFrame(
                     messages=[{"role": "developer", "content": content}],

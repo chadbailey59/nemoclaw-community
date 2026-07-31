@@ -50,8 +50,14 @@ ASK_INSTRUCTION = (
     "markdown, no bullets, and do not spell out URLs character by character."
 )
 
-RESOLVED_INSTRUCTION = (
-    "Tell the user this outcome in one short sentence, then stop. "
+# Only reached when something did not go the way the operator asked. A
+# successful approval is silent: they said yes, it opened, the agent carried
+# on, and there is nothing to report.
+PROBLEM_INSTRUCTION = (
+    "Something did not go the way the user asked. Tell them in one short "
+    "sentence, then stop. Do not soften it and do not imply the source is "
+    "usable if it is not. If the problem is that you did not understand their "
+    "answer, ask the question again plainly as a yes or no. "
     "Use plain spoken text only."
 )
 
@@ -75,11 +81,18 @@ class GatekeeperWorker(BaseWorker):
                     # Pre-approved hosts are not worth interrupting a human for.
                     logger.info(f"Auto-allowed without asking: {event.text}")
                     continue
+                if event.kind == "resolved" and event.data.get("expected"):
+                    # It did what was just asked for. Saying "that worked"
+                    # after every approval is noise, and noise is how someone
+                    # learns to stop listening to the one report that matters.
+                    logger.info(f"As expected: {event.text}")
+                    continue
                 if event.kind == "asked":
                     logger.info(f"Awaiting approval: {event.data.get('endpoint')}")
                     content = f"{ASK_INSTRUCTION} Question: {event.text}"
                 else:
-                    content = f"{RESOLVED_INSTRUCTION} Outcome: {event.text}"
+                    logger.warning(f"Unexpected outcome: {event.text}")
+                    content = f"{PROBLEM_INSTRUCTION} Problem: {event.text}"
                 await self.send_job_update(
                     message.job_id,
                     {
@@ -88,9 +101,14 @@ class GatekeeperWorker(BaseWorker):
                         "host": event.data.get("host"),
                         "detail": event.data.get("detail", ""),
                     },
-                    # A stalled agent is worth cutting into whatever the voice
-                    # loop was saying; an outcome report is not.
-                    urgent=event.kind == "asked",
+                    # Everything here goes out urgently so it keeps the order
+                    # the gatekeeper produced it in. Marking only questions
+                    # urgent let the next question overtake the previous
+                    # answer's outcome: observed live, the bot asked about
+                    # developer.nvidia.com five seconds before reporting that
+                    # duckduckgo had opened, which reads as an answer to the
+                    # wrong question.
+                    urgent=True,
                 )
         except asyncio.CancelledError:
             raise
@@ -146,16 +164,24 @@ class GatekeeperWorker(BaseWorker):
         outcome = await self._keeper.answer(text, host=asked_about)
         applied = bool(outcome and outcome.applied)
 
+        # An answer that was not understood leaves the same question
+        # outstanding. That is a different thing from a refusal and must be
+        # said differently: observed live, "Yes. That's fine." was misread and
+        # reported back as "developer.nvidia.com remains blocked", so the
+        # operator believed their clear approval had been declined.
+        not_understood = self._keeper.asked is asked and asked is not None
+
         if applied and host:
             await self._resume_research(host)
 
         await self.send_job_response(
             message.job_id,
             {
-                "kind": "answered",
+                "kind": "not_understood" if not_understood else "answered",
                 "host": host,
                 "applied": applied,
                 "resumed": applied,
+                "heard": text,
                 "status": outcome.detail if outcome else "Left it blocked.",
             },
             urgent=True,

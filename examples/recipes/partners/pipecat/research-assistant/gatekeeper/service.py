@@ -11,6 +11,7 @@ and the console. Nothing in this module knows that audio exists.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -55,13 +56,20 @@ def interpret(text: str) -> Choice:
     - including silence, a question, or a half-sentence - leaves the policy
     exactly as it was. Widening egress is the thing this whole recipe exists to
     make deliberate, so an unclear answer must never be the one that does it.
+
+    Sentence punctuation is stripped before matching. Observed live: "Yes.
+    That's fine." was read as unclear, because the affirmative carried a full
+    stop and only a following space or comma was handled. Being cautious about
+    genuine ambiguity is right; failing to understand a plain yes is not, and
+    it is worse than it sounds - the operator hears their clear answer
+    reported back as a refusal.
     """
-    normalized = " ".join(text.lower().strip().split()).rstrip(".!?").strip()
+    normalized = " ".join(re.sub(r"[.,!?;:]+", " ", text.lower()).split())
     if not normalized:
         return "unclear"
     for phrases, choice in ((_NEGATIVE, "rejected"), (_AFFIRMATIVE, "approved")):
         for phrase in phrases:
-            if normalized == phrase or normalized.startswith((f"{phrase} ", f"{phrase},")):
+            if normalized == phrase or normalized.startswith(f"{phrase} "):
                 return choice
     return "unclear"
 
@@ -230,8 +238,11 @@ class Gatekeeper:
             await self.events.put(
                 GatekeeperEvent(
                     "error",
-                    "I did not catch a clear yes or no, so nothing was opened.",
-                    {"heard": text, "host": question.host},
+                    (
+                        f"I did not catch a clear yes or no, so nothing was "
+                        f"opened. Should I allow {question.host}?"
+                    ),
+                    {"heard": text, "host": question.host, "still_asking": True},
                 )
             )
             return None
@@ -249,11 +260,15 @@ class Gatekeeper:
     ) -> ApprovalOutcome | None:
         if choice != "approved":
             self.scope.deny(denial.host)
+            # `expected` marks an outcome that did what the operator just
+            # asked for. Those do not need saying: being told "that worked"
+            # after every approval is noise, and noise is what trains someone
+            # to stop listening to the one report that matters.
             await self.events.put(
                 GatekeeperEvent(
                     "resolved",
                     f"Left {denial.host} blocked.",
-                    {"host": denial.host, "choice": choice},
+                    {"host": denial.host, "choice": choice, "expected": True},
                 )
             )
             return None
@@ -282,7 +297,15 @@ class Gatekeeper:
                     if outcome.applied
                     else f"Could not open {denial.host}: {outcome.detail}"
                 ),
-                {"host": denial.host, "applied": outcome.applied, "automatic": automatic},
+                {
+                    "host": denial.host,
+                    "applied": outcome.applied,
+                    "automatic": automatic,
+                    # An approval that did not take is the whole reason this
+                    # distinction exists: the operator believes the source is
+                    # open and it is not.
+                    "expected": outcome.applied,
+                },
             )
         )
         return outcome
