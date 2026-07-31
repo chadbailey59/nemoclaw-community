@@ -18,6 +18,7 @@ again by contributor provenance.
 | Contributor | Example | Description |
 | --- | --- | --- |
 | HPE | [Retail Assistant](recipes/partners/hpe/retail-assistant/README.md) | Provides role-aware retail operations through Telegram, FastAPI, PostgreSQL, Docker Compose, and Helm. |
+| Pipecat | [Research Assistant](recipes/partners/pipecat/research-assistant/README.md) | Runs long research sweeps and moves the operator approval of blocked sources onto a voice channel. |
 | Tavily | [Watchtower](recipes/partners/tavily/watchtower/README.md) | Runs scheduled, cited web monitoring with persistent deduplication and auditable outputs. |
 
 Future independent contributions without formal organizational provenance

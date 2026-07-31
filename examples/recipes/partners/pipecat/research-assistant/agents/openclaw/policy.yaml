@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Baseline research sources for the research assistant.
+#
+# Apply with:
+#   nemoclaw <sandbox> policy-add --from-file agents/openclaw/policy.yaml --yes
+#
+# Deliberately small. Everything the agent reaches for beyond this list is
+# denied by the OpenShell gateway, which is what produces the spoken approval
+# request. A generous baseline would make the demo quiet and the boundary
+# meaningless, so add hosts here only when you are tired of approving them.
+#
+# Every endpoint is GET-only. This agent reads sources; it never posts to them.
+# Widening a method here is a larger decision than approving a host at runtime.
+preset:
+  name: research-baseline
+  description: "Baseline read-only research sources for the research assistant"
+
+network_policies:
+  research-baseline:
+    name: research-baseline
+    endpoints:
+      # A general starting point, so a sweep can begin without an approval
+      # before it has said anything to the operator.
+      - host: en.wikipedia.org
+        port: 443
+        protocol: rest
+        tls: terminate
+        enforcement: enforce
+        rules:
+          - allow:
+              method: GET
+              path: /wiki/**
+          - allow:
+              method: GET
+              path: /w/api.php**
+
+      # Canonical, stable, and safe to read without asking every run.
+      - host: www.rfc-editor.org
+        port: 443
+        protocol: rest
+        tls: terminate
+        enforcement: enforce
+        rules:
+          - allow:
+              method: GET
+              path: /rfc/**
