@@ -36,6 +36,30 @@ info "Installing the research-sweep skill..."
 nemoclaw "${SANDBOX}" skill install \
   "${RECIPE_DIR}/agents/openclaw/skills/research-sweep"
 
+# Presets that allow a host capable of serving arbitrary third-party content.
+# Observed live: with `huggingface` applied, an agent denied arxiv.org fetched
+# the same papers through huggingface.co's paper mirror seconds later. The
+# operator was never asked. See docs/security-model.md.
+BROAD="$(nemoclaw "${SANDBOX}" policy-list 2>/dev/null \
+  | awk '/●/ && /huggingface|npm|pypi|brew|github/ {print $2}' | tr '\n' ' ')"
+
+if [ -n "${BROAD}" ]; then
+  cat <<WARN
+
+  WARNING: this sandbox has presets that undermine the approval boundary:
+
+      ${BROAD}
+
+  Each allows a host that mirrors or hosts third-party content, so the agent
+  can reach blocked material through them without ever asking you. Drop the
+  ones it does not need:
+
+$(printf '      nemoclaw %s policy-remove %s --yes\n' "${SANDBOX}" ${BROAD})
+
+  Keep them only if the agent must install packages during a sweep.
+WARN
+fi
+
 GATEWAY_PORT="$(nemoclaw list 2>/dev/null \
   | awk -v s="${SANDBOX}" '$1 == s {found=1} found && /dashboard:/ {print; exit}' \
   | grep -oE '[0-9]+/?$' | tr -d '/' || true)"

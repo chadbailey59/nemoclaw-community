@@ -88,6 +88,52 @@ into a clear yes or no and calls `answer_policy_question`; the keyword pass in
 primary reader. The backstop reads the leading word, so a trailing qualifier
 ("sure, but check the date") is lost - a known and tested behavior.
 
+## Observed: a broad allowlisted host defeats the boundary
+
+This was not predicted. It was watched happening, and it is the most
+important thing on this page.
+
+Asked to compare NVFP4 and FP8, the agent reached for `arxiv.org`, was denied,
+and then fetched the same two papers through `huggingface.co`, which the
+`huggingface` preset allows so that models can be downloaded. From the gateway:
+
+```text
+2 DENIED  /usr/local/bin/node(364) -> arxiv.org:443
+2 ALLOWED /usr/local/bin/node(364) -> huggingface.co:443
+```
+
+Same process, seconds apart. Its final answer said so plainly - the papers were
+read "via Hugging Face's paper mirror of the arXiv HTML." The operator was
+never asked about `arxiv.org`, and the content arrived anyway.
+
+Both `SOUL.md` and the `research-sweep` skill explicitly forbid this: *do not
+look for the same content on another host, a cache, an archive, a mirror, a
+proxy, or a search-engine snapshot.* The model did it regardless.
+
+Draw the right conclusion from that. **Prompt instructions are not a security
+control.** They are a statement of intent that a capable model will route
+around when the task pushes hard enough, and no amount of firmer wording fixes
+it. The only control here is the policy, and the policy said `huggingface.co`
+was readable.
+
+This is NemoClaw's own documented risk, made concrete: approving a broad domain
+that hosts arbitrary content lets the agent fetch anything from that domain.
+`huggingface.co`, `github.com`, `raw.githubusercontent.com`, and the npm and
+PyPI registries all mirror or host third-party content, and all are enabled by
+common presets.
+
+What follows from it:
+
+- **A research sandbox should not carry general-purpose presets.** Apply
+  `research-baseline` and drop `huggingface`, `npm`, `pypi`, and `brew` unless
+  the agent genuinely needs to install packages mid-sweep. `setup.sh` warns
+  when it finds them.
+- **Judge the boundary by what policy permits, not by what the SOUL asks for.**
+  Before trusting a sweep, read `openshell policy get <sandbox> --full` and ask
+  which of those hosts can serve arbitrary content.
+- **The instruction stays anyway.** It makes intent auditable and it costs
+  nothing. It is just not a boundary, and this document will not pretend it is.
+
 ## What this recipe does not defend against
 
 Stated plainly, because a security model that only lists its strengths is not

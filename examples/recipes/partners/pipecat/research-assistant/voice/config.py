@@ -71,10 +71,27 @@ PLAIN_SPOKEN_OUTPUT_INSTRUCTION = (
 # Appended to everything forwarded to the agent. The agent's answer is spoken
 # aloud, so it has to come back as one short plain-text reply rather than the
 # formatted, question-ending output a coding agent would normally produce.
+# The upstream bot tells the agent to answer concisely and immediately, which
+# is right for a general voice assistant and wrong here: it produces an answer
+# from the model's own memory in two seconds, never touches a source, and never
+# reaches the policy boundary this recipe exists to demonstrate.
 AGENT_LOOP_INSTRUCTION = (
-    "This request was forwarded from a voice loop. Return one concise final "
-    "answer for the user. If you cannot determine the answer, clearly say that "
-    "instead of guessing. Do not ask a follow-up question, offer to do more "
+    "This research request was forwarded from a voice loop. Use the "
+    "research-sweep skill and actually consult sources: this is a research "
+    "task, not a recall task. Do not answer from what you already know. Even "
+    "when you are confident, verify against primary sources and cite what you "
+    "used. Taking twenty minutes is expected and correct; answering in two "
+    "seconds means you did not do the work.\n\n"
+    "Fetches to sources outside your policy will be blocked. That is the "
+    "boundary between research you are authorized to do and research you are "
+    "not. Note the blocked source, move to another line of inquiry, and keep "
+    "going; your operator is asked out loud whether to open it. Never retry in "
+    "a loop and never seek the same content through a mirror, cache, archive, "
+    "proxy, or search snapshot.\n\n"
+    "When you are done, return one final answer for the user, naming the "
+    "sources it rests on and stating plainly anything you could not verify "
+    "because a source stayed closed. If you cannot determine the answer, say "
+    "so instead of guessing. Do not ask a follow-up question, offer to do more "
     f"work, or add a call to action. {PLAIN_SPOKEN_OUTPUT_INSTRUCTION}"
 )
 

@@ -156,6 +156,14 @@ file, `voice/gatekeeper_worker.py`, which keeps both independently testable.
 
 ## Known limitations
 
+- **A broad allowlisted host defeats the boundary.** Observed, not theorized:
+  denied `arxiv.org`, the agent fetched the same papers through
+  `huggingface.co` — allowed by the `huggingface` preset — and said so in its
+  own answer. The operator was never asked. `SOUL.md` forbids exactly this and
+  the model did it anyway, which is the point: prompt instructions are not a
+  security control, policy is. Run a research sandbox without general-purpose
+  presets; `setup.sh` warns when it finds them. Full detail in
+  [docs/security-model.md](docs/security-model.md).
 - Approvals persist for the life of the sandbox, not just the sweep. To revoke
   early, use `openshell policy update --remove-endpoint`.
 - The spoken-answer backstop reads the leading word, so a trailing qualifier
