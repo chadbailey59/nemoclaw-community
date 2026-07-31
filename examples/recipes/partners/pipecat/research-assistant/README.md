@@ -160,10 +160,21 @@ file, `voice/gatekeeper_worker.py`, which keeps both independently testable.
   denied `arxiv.org`, the agent fetched the same papers through
   `huggingface.co` — allowed by the `huggingface` preset — and said so in its
   own answer. The operator was never asked. `SOUL.md` forbids exactly this and
-  the model did it anyway, which is the point: prompt instructions are not a
-  security control, policy is. Run a research sandbox without general-purpose
-  presets; `setup.sh` warns when it finds them. Full detail in
-  [docs/security-model.md](docs/security-model.md).
+  the model did it anyway. Removing that one preset and changing nothing else
+  closed the route: the agent found no way around and said plainly which
+  sources it could not reach. Prompt instructions are not a security control;
+  policy is, and that is measured rather than argued. Run a research sandbox
+  without general-purpose presets; `setup.sh` warns when it finds them. Both
+  runs are in [docs/security-model.md](docs/security-model.md).
+- **No web search tool is configured.** The agent can fetch URLs it can name
+  but cannot search, so it leans on hosts it already knows. Its own words:
+  "the available web search tool failed because SearXNG is not configured."
+  Research quality suffers, and a search backend would need its own endpoint
+  approved.
+- **Reusing a session key hides whether research happened.** A repeat question
+  in the same session can be answered from what that session already found,
+  with no network request, while still reading like fresh research. Use a
+  distinct session per evaluation run, or check the OCSF log.
 - Approvals persist for the life of the sandbox, not just the sweep. To revoke
   early, use `openshell policy update --remove-endpoint`.
 - The spoken-answer backstop reads the leading word, so a trailing qualifier
