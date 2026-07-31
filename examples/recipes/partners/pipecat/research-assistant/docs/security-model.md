@@ -177,6 +177,41 @@ cross-checking the sources an answer names against the hosts actually contacted
 is a natural extension, and one nothing else in this catalogue is positioned to
 do.
 
+## The layer the gatekeeper does not watch
+
+OpenShell enforces at two layers, and the approval loop only reads one.
+
+```text
+NET:OPEN  [INFO] ALLOWED  /usr/bin/curl -> en.wikipedia.org:443   <- connection
+HTTP:GET  [MED]  DENIED   GET http://en.wikipedia.org:443/        <- method and path
+```
+
+`NET:OPEN` decides whether a connection may be opened at all. `HTTP:GET`
+decides whether a particular method and path may be requested over it. The
+shipped baseline allows `en.wikipedia.org/wiki/**`, so a request for `/` on
+that host is refused at L7 even though the connection succeeds.
+
+The gatekeeper parses `NET:OPEN` only. Consequences worth being explicit
+about:
+
+- **A path-level denial never becomes a spoken question.** If the agent is
+  allowed onto a host but refused a path, nobody is asked. The agent sees a
+  failed fetch and moves on, and the operator never learns it happened.
+- **An approval opens more than the question implied.** Approving a host at
+  runtime uses `--add-endpoint`, whose `read-only` preset expands to
+  `GET`, `HEAD`, and `OPTIONS` on `**`. The spoken question is "should I allow
+  this host", and the grant is the whole host, not one page. That is the
+  honest reading of the question, but it is broader than a listener might
+  assume.
+- **The audit sees connections, not requests.** A host appears in the ledger
+  once contacted, whether or not the content was actually served.
+
+Reading `HTTP:GET` denials as well would close the first gap, and is the
+obvious next extension. It is not done here, and the recipe should not be
+described as mediating every refused fetch - only every refused *connection*.
+`test_path_rules_are_enforced_separately_from_the_connection` pins the
+behaviour so a future change to it is noticed.
+
 ## What this recipe does not defend against
 
 Stated plainly, because a security model that only lists its strengths is not

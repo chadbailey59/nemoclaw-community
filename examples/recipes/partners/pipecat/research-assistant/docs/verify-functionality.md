@@ -1,7 +1,17 @@
 # Verify functionality
 
-Three levels, cheapest first. The unit tests need no sandbox; the scripted
-check needs a sandbox but no audio; the voice check needs both.
+Cheapest first, and in three layers that fail for different reasons.
+
+1. **Our code** (§1) — unit tests, no sandbox, no credentials.
+2. **The platform** (§2–3) — does the sandbox still behave as assumed, and does
+   the agent on top of it. Needs a sandbox; skipped without one.
+3. **The whole loop** (§4–6) — a real approval, by script, by terminal, by
+   voice.
+
+The distinction in layer 2 is the one worth internalising: this recipe can stop
+working entirely without a single unit test failing, because most of what it
+depends on belongs to NemoClaw, OpenShell, and OpenClaw rather than to us. Run
+§2 first after any upgrade of those.
 
 ## 1. Unit tests (no sandbox, no credentials, no virtualenv)
 
@@ -45,7 +55,57 @@ that exposed the bug:
 - `test_claiming_to_have_tried_a_source_never_contacted_is_flagged` — an answer
   said it had attempted arXiv when the gateway saw no connection to it.
 
-## 2. The boundary, without audio
+## 2. Is the sandbox still configured the way this recipe assumes?
+
+The unit tests check our code. This checks the ground it stands on, and it is
+the first thing to run after a NemoClaw or OpenClaw upgrade — the recipe can
+break completely while every unit test still passes.
+
+```console
+$ RESEARCH_SANDBOX=nc python3 -m pytest tests/test_sandbox_conformance.py -v
+```
+
+Every test here corresponds to an assumption that was wrong at least once
+during development:
+
+| Assumption | Why it is checked |
+| --- | --- |
+| `openshell` is absent from the sandbox and the host is unreachable from it | The entire security story. If this fails, the agent can grant itself access. |
+| An unlisted host is refused | Deny-by-default is what produces the question. |
+| A block emits a parseable OCSF `NET:OPEN` denial naming host, port, and binary | The approval is scoped from exactly those fields. |
+| An allowed fetch emits a parseable event | The citation audit is built on these. |
+| Path rules enforce separately from the connection | Two layers; the approval loop reads only one. |
+| An endpoint without `--binary` grants nothing | Merges into policy and still 403s. Fails silently if forgotten. |
+| An endpoint with `--binary` grants access, and `--wait` says "loaded" | The approver reports success on exactly that word. |
+| `openshell` writes progress to stderr | The approver merges the streams because of this. |
+| The baseline preset is applied and its hosts are reachable | A preset can apply cleanly and still grant nothing. |
+| The research skill is installed | Otherwise the agent has no procedure. |
+| A gateway token exists | Without one, every run fails `device identity required`. |
+
+A failure here is a platform change, not a regression in this recipe. Read the
+assertion message: several say what to conclude if the platform has moved on.
+
+## 3. Does the agent behave the way the recipe needs?
+
+Slower, model-dependent, and asserted loosely — on whether network traffic
+happened at all, not on the wording of an answer.
+
+```console
+$ RESEARCH_SANDBOX=nc python3 -m pytest tests/test_agent_behavior.py -v
+```
+
+| Behaviour | Why it matters |
+| --- | --- |
+| A research request produces real fetches | Once failed because the agent-loop instruction asked for "one concise answer", producing a confident reply in two seconds with no fetch. |
+| It stops at the boundary rather than routing around | Skipped when a mirror-capable preset is applied, because the answer is already known to be "it routes around". |
+| It reports blocked sources instead of guessing | The honest-failure case. |
+| The audit agrees with the gateway | Whatever the answer credits, the ledger is the record. |
+
+Each test uses a distinct session key. Reusing one lets the agent answer from
+what an earlier run found, which produces no network traffic and reads exactly
+like fresh research.
+
+## 4. The boundary, without audio
 
 Confirms against a live sandbox that a blocked source becomes an approval
 request, and that approving it actually changes policy.
@@ -93,7 +153,7 @@ binary, not opened for everything in the sandbox:
     - path: /usr/bin/curl
 ```
 
-## 3. Approving interactively
+## 5. Approving interactively
 
 Same boundary, answering by hand:
 
@@ -113,7 +173,7 @@ something ambiguous and it will tell you nothing was opened, and ask again.
 Add `--dry-run` to see exactly which `openshell` command an approval would run,
 without changing any policy.
 
-## 4. By voice
+## 6. By voice
 
 ```console
 $ python -m voice.bot -t webrtc --port 7860
