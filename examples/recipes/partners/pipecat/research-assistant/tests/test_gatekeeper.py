@@ -276,6 +276,72 @@ def test_dry_run_never_touches_policy():
         assert not outcome.applied and "dry run" in outcome.detail
     run(main())
 
+def _denial(host, ts="1785462960.759", binary="/usr/bin/curl"):
+    return (
+        f"[{ts}] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED "
+        f"{binary}(74441) -> {host}:443 [policy:- engine:opa]"
+    )
+
+
+def test_an_answer_for_the_wrong_host_opens_nothing():
+    """Observed live: the bot asked about one host and opened another.
+
+    Three denials queued at once, the voice loop read out the last, and the
+    answer resolved the first. The person approved a host they were never
+    asked about. Consent is for one source; applying it to another is a
+    substitution, not an approval.
+    """
+    async def main():
+        approver = FakeApprover()
+        keeper = Gatekeeper(
+            FakeWatcher([_denial("arxiv.org"), _denial("en.wikipedia.org")]), approver
+        )
+        await keeper.run()
+
+        # Only one question is ever outstanding, so there is no ambiguity.
+        assert keeper.asked is not None
+        assert keeper.asked.host == "arxiv.org"
+
+        # An answer attributed to a different host must not open anything.
+        assert await keeper.answer("yes", host="en.wikipedia.org") is None
+        assert approver.calls == []
+        assert keeper.asked.host == "arxiv.org"  # still outstanding
+
+        # Answering the host actually asked about works.
+        outcome = await keeper.answer("yes", host="arxiv.org")
+        assert outcome is not None and outcome.applied
+        assert approver.calls == [("arxiv.org", 443, "/usr/bin/curl")]
+    run(main())
+
+
+def test_only_one_question_is_outstanding_at_a_time():
+    async def main():
+        keeper = Gatekeeper(
+            FakeWatcher([_denial("a.example"), _denial("b.example"), _denial("c.example")]),
+            FakeApprover(),
+        )
+        await keeper.run()
+        assert keeper.asked.host == "a.example"
+        assert len(keeper.pending) == 3  # two queued behind it
+
+        await keeper.answer("no", host="a.example")
+        assert keeper.asked.host == "b.example"  # next one surfaces only now
+    run(main())
+
+
+def test_denials_from_before_the_session_are_ignored():
+    """`openshell logs --tail` replays history; those are not live requests."""
+    async def main():
+        keeper = Gatekeeper(
+            FakeWatcher([_denial("old.example", ts="1000.0"), _denial("new.example", ts="3000.0")]),
+            FakeApprover(),
+            since=2000.0,
+        )
+        await keeper.run()
+        assert [q.host for q in keeper.pending] == ["new.example"]
+    run(main())
+
+
 def test_shipped_baseline_policy_scopes_binaries():
     """A baseline without `binaries` loads cleanly and grants nothing.
 

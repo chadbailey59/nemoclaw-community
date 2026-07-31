@@ -36,9 +36,26 @@ info "Installing the research-sweep skill..."
 nemoclaw "${SANDBOX}" skill install \
   "${RECIPE_DIR}/agents/openclaw/skills/research-sweep"
 
-cat <<'NEXT'
+GATEWAY_PORT="$(nemoclaw list 2>/dev/null \
+  | awk -v s="${SANDBOX}" '$1 == s {found=1} found && /dashboard:/ {print; exit}' \
+  | grep -oE '[0-9]+/?$' | tr -d '/' || true)"
+
+cat <<NEXT
 
   Setup complete.
+
+  The Gateway needs a token. It auto-pairs only the control UI and webchat,
+  so without one every run fails with "device identity required":
+
+      echo "OPENCLAW_TOKEN=\$(nemoclaw ${SANDBOX} gateway-token --quiet)" >> .env
+${GATEWAY_PORT:+
+  This sandbox publishes its Gateway on port ${GATEWAY_PORT}:
+
+      echo "OPENCLAW_GATEWAY_URL=ws://127.0.0.1:${GATEWAY_PORT}" >> .env
+}
+NEXT
+
+cat <<'NEXT'
 
   The agent can currently read only the baseline sources. Anything else it
   reaches for will be blocked and raised for approval.

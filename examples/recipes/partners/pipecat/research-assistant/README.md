@@ -69,8 +69,15 @@ the blocked source, so asking is cheap.
 ```console
 $ cd examples/recipes/partners/pipecat/research-assistant
 $ ./scripts/setup.sh nc
-$ cp .env.example .env    # then fill it in
+$ cp .env.example .env
+$ echo "OPENCLAW_TOKEN=$(nemoclaw nc gateway-token --quiet)" >> .env
 ```
+
+The Gateway token is required, not optional. OpenClaw auto-pairs only the
+control UI and webchat, and this bot is neither, so without a token every run
+fails with `device identity required`. Check the Gateway port with
+`nemoclaw list` — a sandbox publishes its own (18790 here), which is not
+OpenClaw's default 18789.
 
 `setup.sh` applies a deliberately small baseline policy and installs the skill.
 The baseline is small on purpose: a generous one makes the demo quiet and the

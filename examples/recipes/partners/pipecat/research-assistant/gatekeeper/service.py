@@ -90,18 +90,30 @@ class Gatekeeper:
         *,
         scope: ResearchScope | None = None,
         auto_allow: frozenset[str] = frozenset(),
+        since: float | None = None,
     ):
         self.watcher = watcher
         self.approver = approver
         self.scope = scope or ResearchScope()
         self.auto_allow = auto_allow
+        # `openshell logs --tail` replays recent history on attach. Denials
+        # from before this run are already-answered questions from a previous
+        # session, and re-asking them buries the live one.
+        self.since = since
         self.events: asyncio.Queue[GatekeeperEvent] = asyncio.Queue()
-        self._questions: list[Question] = []
+        self._asked: Question | None = None
+        self._waiting: list[Question] = []
         self._seen = Deduplicator()
 
     @property
     def pending(self) -> tuple[Question, ...]:
-        return tuple(self._questions)
+        """The outstanding question first, then anything queued behind it."""
+        return tuple(q for q in (self._asked, *self._waiting) if q is not None)
+
+    @property
+    def asked(self) -> Question | None:
+        """The one question a human has actually been asked."""
+        return self._asked
 
     async def run(self) -> None:
         """Consume denials until the watcher stops."""
@@ -109,6 +121,9 @@ class Gatekeeper:
             await self._handle(denial)
 
     async def _handle(self, denial: Denial) -> None:
+        # Replayed history is not a live request for permission.
+        if self.since is not None and denial.timestamp < self.since:
+            return
         # Retries of an already-decided endpoint must not re-ask.
         if not self._seen.is_new(denial):
             return
@@ -120,41 +135,79 @@ class Gatekeeper:
         self._seen.record(denial, "pending")
         future: asyncio.Future[Choice] = asyncio.get_running_loop().create_future()
         question = Question(denial=denial, future=future, asked_at=denial.timestamp)
-        self._questions.append(question)
+        self._waiting.append(question)
+        await self._ask_next()
+
+    async def _ask_next(self) -> None:
+        """Put exactly one question to the human at a time.
+
+        Asking several at once is how a spoken answer ends up attached to the
+        wrong host: the listener hears the last question and the queue resolves
+        the first. One outstanding question means "yes" is never ambiguous.
+        """
+        if self._asked is not None or not self._waiting:
+            return
+        question = self._waiting.pop(0)
+        self._asked = question
         await self.events.put(
             GatekeeperEvent(
                 "asked",
                 question.prompt,
                 {
-                    "host": denial.host,
-                    "endpoint": denial.endpoint,
+                    "host": question.denial.host,
+                    "endpoint": question.denial.endpoint,
                     "detail": question.detail,
-                    "binary": denial.binary,
-                    "reason": denial.reason,
+                    "binary": question.denial.binary,
+                    "reason": question.denial.reason,
                 },
             )
         )
 
-    async def answer(self, text: str) -> ApprovalOutcome | None:
-        """Apply a spoken answer to the oldest pending question."""
-        if not self._questions:
+    async def answer(self, text: str, host: str | None = None) -> ApprovalOutcome | None:
+        """Apply a spoken answer to the question that was actually asked.
+
+        `host` is what the caller believes it asked about. If that disagrees
+        with the outstanding question, nothing is opened. Consent is given for
+        a specific source, and applying it to a different one - even one the
+        person would probably also have approved - is not an approval, it is a
+        substitution.
+        """
+        question = self._asked
+        if question is None:
             return None
+
+        if host is not None and host != question.host:
+            await self.events.put(
+                GatekeeperEvent(
+                    "error",
+                    (
+                        f"I was asked about {question.host} but the answer came "
+                        f"back for {host}, so nothing was opened."
+                    ),
+                    {"asked_about": question.host, "answered_about": host,
+                     "refused": True},
+                )
+            )
+            return None
+
         choice = interpret(text)
         if choice == "unclear":
             await self.events.put(
                 GatekeeperEvent(
                     "error",
                     "I did not catch a clear yes or no, so nothing was opened.",
-                    {"heard": text},
+                    {"heard": text, "host": question.host},
                 )
             )
             return None
 
-        question = self._questions.pop(0)
+        self._asked = None
         self._seen.record(question.denial, choice)
         if not question.future.done():
             question.future.set_result(choice)
-        return await self._apply(question.denial, choice)
+        outcome = await self._apply(question.denial, choice)
+        await self._ask_next()
+        return outcome
 
     async def _apply(
         self, denial: Denial, choice: Choice, *, automatic: bool = False

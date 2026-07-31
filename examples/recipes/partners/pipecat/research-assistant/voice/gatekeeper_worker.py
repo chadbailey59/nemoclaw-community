@@ -96,6 +96,9 @@ class GatekeeperWorker(BaseWorker):
         """Apply a spoken answer to the oldest pending question."""
         payload = message.payload or {}
         text = str(payload.get("answer", ""))
+        # What the voice loop believes it asked about. The gatekeeper refuses
+        # the answer if that disagrees with the outstanding question.
+        asked_about = payload.get("host")
 
         if not self._keeper.pending:
             # Answering a question nobody asked must not silently look like
@@ -107,8 +110,9 @@ class GatekeeperWorker(BaseWorker):
             )
             return
 
-        host = self._keeper.pending[0].host
-        outcome = await self._keeper.answer(text)
+        asked = self._keeper.asked
+        host = asked.host if asked else None
+        outcome = await self._keeper.answer(text, host=asked_about)
         await self.send_job_response(
             message.job_id,
             {

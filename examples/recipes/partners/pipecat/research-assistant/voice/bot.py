@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -120,10 +121,15 @@ async def answer_policy_question(  # noqa: D417 — `params` is framework plumbi
     Args:
         answer: What the user said, verbatim enough to tell yes from no.
     """
+    # Send the host this voice loop actually read out, so the gatekeeper can
+    # refuse an answer that does not match the question a human heard.
     job_id = await params.pipeline_worker.request_job(
         GATEKEEPER_WORKER,
         name="answer",
-        payload={"answer": answer},
+        payload={
+            "answer": answer,
+            "host": getattr(params.pipeline_worker, "_pending_policy_host", None),
+        },
         timeout=None,
     )
     logger.info(f"Relayed policy answer as job {job_id}: {answer!r}")
@@ -384,6 +390,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     keeper = Gatekeeper(
         watcher,
         PolicyApprover(sandbox, openshell=os.getenv("OPENSHELL_BIN", "openshell")),
+        # Ignore denials that predate this session. The log tail replays recent
+        # history, and those are questions from a run that already ended.
+        since=time.time(),
         auto_allow=frozenset(
             host.strip()
             for host in os.getenv("RESEARCH_AUTO_ALLOW", "").split(",")
