@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 
@@ -404,7 +405,30 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 ),
             }
         )
+        # Greet first. Everything below is background wiring, and none of it
+        # should be able to delay or block the first thing the user hears.
         await main_worker.queue_frame(LLMRunFrame())
+
+        # Then start watching for blocked sources. This has to happen after
+        # the bus is running - requested before runner.run(), the worker is
+        # registered but cannot accept the job, so every denial is dropped and
+        # the boundary looks like it simply never fires.
+        #
+        # Fired as a task rather than awaited: `watch` is a long-lived job that
+        # only ends with the session, so awaiting it here would hold up the
+        # greeting forever.
+        async def start_watching() -> None:
+            try:
+                await watcher.__aenter__()
+                await main_worker.request_job(GATEKEEPER_WORKER, name="watch", timeout=None)
+                logger.info(f"Watching sandbox '{sandbox}' for blocked research sources")
+            except Exception as exc:
+                # Losing the watcher means blocked sources stop being announced.
+                # That must be loud: the failure mode is a boundary that looks
+                # like it is working because nothing is ever asked.
+                logger.exception(f"Could not watch '{sandbox}' for blocked sources: {exc}")
+
+        asyncio.create_task(start_watching())
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
@@ -417,11 +441,6 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         gatekeeper_worker,
         main_worker,
     )
-
-    # Open the long-lived watch job so blocked sources reach the voice loop for
-    # the whole session, not just while a research run happens to be active.
-    await watcher.__aenter__()
-    await main_worker.request_job(GATEKEEPER_WORKER, name="watch", timeout=None)
 
     try:
         await runner.run()

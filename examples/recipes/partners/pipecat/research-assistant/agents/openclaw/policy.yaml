@@ -46,3 +46,12 @@ network_policies:
           - allow:
               method: GET
               path: /rfc/**
+
+    # Load-bearing, not boilerplate. OpenShell resolves network rules per
+    # calling binary: an endpoint listed without `binaries` is present in the
+    # policy and still refused at connect time, so the baseline above would
+    # silently do nothing. Keep this list to the binaries that actually fetch.
+    binaries:
+      - path: /usr/local/bin/openclaw
+      - path: /usr/local/bin/node
+      - path: /usr/bin/curl

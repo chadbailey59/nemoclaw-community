@@ -276,6 +276,20 @@ def test_dry_run_never_touches_policy():
         assert not outcome.applied and "dry run" in outcome.detail
     run(main())
 
+def test_shipped_baseline_policy_scopes_binaries():
+    """A baseline without `binaries` loads cleanly and grants nothing.
+
+    OpenShell resolves rules per calling binary, so every endpoint in the
+    preset is refused at connect time unless the fetching binary is listed.
+    The failure is silent - the preset applies, the policy shows the host,
+    and every request still returns 000 - so it is worth a test.
+    """
+    policy = (Path(__file__).resolve().parents[1] / "agents/openclaw/policy.yaml").read_text()
+    assert "binaries:" in policy, "baseline policy grants nothing without a binaries block"
+    for expected in ("/usr/local/bin/openclaw", "/usr/local/bin/node"):
+        assert expected in policy
+
+
 def test_scope_change_callback_fires():
     changes = []
     scope = ResearchScope(on_change=lambda host, allowed: changes.append((host, allowed)))
