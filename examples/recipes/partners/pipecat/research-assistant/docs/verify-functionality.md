@@ -179,11 +179,20 @@ without changing any policy.
 $ python -m voice.bot -t webrtc --port 7860
 ```
 
-Open the printed URL, then start a sweep out loud: *"research how NVFP4
-quantization compares to FP8 for inference."* The agent works in the sandbox.
-When it reaches a source that is not allowlisted, the bot interrupts and asks.
-Say yes and it resumes; say no and it records the source as unavailable and
-carries on.
+Open the printed URL, then start a sweep out loud:
+
+> *"Research how NVFP4 compares to FP8 for inference throughput and accuracy
+> loss, and tell me which workloads each one suits. Make sure to check
+> arxiv.org for primary sources, and don't just answer directly."*
+
+Naming a source and saying not to answer directly matters. A softer question
+often gets answered from what the model already knows, with no fetch, no
+denial, and no approval request — which reads as a broken recipe when it is
+really a question that did not require any research.
+
+The agent works in the sandbox. When it reaches a source that is not
+allowlisted, the bot interrupts and asks. Say yes and it resumes; say no and it
+records the source as unavailable and carries on.
 
 What to listen for:
 

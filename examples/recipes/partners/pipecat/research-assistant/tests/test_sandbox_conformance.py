@@ -10,6 +10,11 @@ first thing to run after a NemoClaw or OpenClaw upgrade: if one fails, the
 recipe is broken even though its unit tests still pass.
 
     RESEARCH_SANDBOX=nc python3 -m pytest tests/test_sandbox_conformance.py -v
+
+When one fails, ../docs/sandbox-requirements.md covers it by test name: what
+was being checked, how to repair the sandbox, and how to tell a sandbox that
+has drifted from a platform that has moved on. It is written to be handed to a
+coding agent along with the failing name.
 """
 
 from __future__ import annotations

@@ -84,70 +84,28 @@ skip and then spend an afternoon debugging.
 
 ## 1. Check your agent sandbox
 
-This recipe is only as good as the sandbox underneath it. Most of what it
-depends on — deny-by-default egress, the shape of OCSF events, per-binary rule
-resolution — belongs to NemoClaw, OpenShell, and OpenClaw rather than to this
-code. It can stop working completely without a single unit test failing.
-
-**You need:**
-
-- NemoClaw with a sandbox running the OpenClaw agent (`nemoclaw onboard`).
-- `openshell` on the host `PATH`. `nemoclaw onboard` puts it there and leaves
-  it out of the sandbox image, which is the default posture this recipe relies
-  on rather than something you have to arrange. You would only lose it by
-  building a custom image that adds `openshell`, or by mounting the host binary
-  in. `test_openshell_is_not_reachable_from_inside_the_sandbox` checks it still
-  holds.
-- Python 3.12+. Sections 1 and 2 need nothing beyond `pytest`; only the voice
-  loop in section 3 needs Pipecat and speech credentials (see `.env.example`).
-
-**Set it up:**
+Needs NemoClaw with an OpenClaw sandbox (`nemoclaw onboard`), `openshell` on
+the host `PATH` as that puts it, and Python 3.12+ with `pytest`.
 
 ```console
 $ cd examples/recipes/partners/pipecat/research-assistant
 $ ./scripts/setup.sh nc
 $ cp .env.example .env
 $ echo "OPENCLAW_TOKEN=$(nemoclaw nc gateway-token --quiet)" >> .env
-```
-
-The Gateway token is required, not optional. OpenClaw auto-pairs only the
-control UI and webchat, and this bot is neither, so without a token every run
-fails with `device identity required`. Check the Gateway port with
-`nemoclaw list` — a sandbox publishes its own (18790 here), not OpenClaw's
-default 18789.
-
-`setup.sh` applies a deliberately small baseline policy and installs the skill.
-Small on purpose: a generous baseline makes the demo quiet and the boundary
-meaningless. It also warns if presets are applied that would let the agent
-route around the boundary entirely — see [Known limitations](#known-limitations).
-
-**Then confirm the sandbox actually behaves as assumed:**
-
-```console
 $ RESEARCH_SANDBOX=nc python3 -m pytest tests/test_sandbox_conformance.py -v
 13 passed
 ```
 
-Thirteen checks, each corresponding to an assumption that was wrong at least
-once while building this:
+Those thirteen checks are about NemoClaw, OpenShell, and OpenClaw rather than
+about this recipe's code, and each one corresponds to an assumption that was
+wrong at least once while building it. **Run this first after any NemoClaw or
+OpenClaw upgrade** — the recipe can stop working entirely while every unit test
+still passes.
 
-| Assumption | Why it is checked |
-| --- | --- |
-| `openshell` absent from the sandbox; host unreachable from it | The whole security story. If this fails, the agent can grant itself access. |
-| An unlisted host is refused | Deny-by-default is what produces the question. |
-| A block emits a parseable OCSF denial naming host, port, and binary | An approval is scoped from exactly those fields. |
-| An allowed fetch emits a parseable event | The citation audit is built on these. |
-| Path rules enforce separately from the connection | Two layers; the approval loop reads only one. |
-| An endpoint without `--binary` grants nothing | Merges into policy and still fails at connect time. |
-| An endpoint with `--binary` grants access; `--wait` says "loaded" | The approver reports success on exactly that word. |
-| `openshell` reports progress on stderr | The approver merges the streams because of this. |
-| The baseline preset is applied and reachable | A preset can apply cleanly and still grant nothing. |
-| The research skill is installed | Otherwise the agent has no procedure. |
-| A gateway token exists | Without one, every run fails to connect. |
-
-A failure here is a platform change, not a regression in this recipe. Several
-assertions say what to conclude if the platform has moved on. **Run this first
-after any NemoClaw or OpenClaw upgrade.**
+**If anything fails, hand your coding agent
+[docs/sandbox-requirements.md](docs/sandbox-requirements.md) and the failing
+test name.** It covers every check: what was being verified, how to repair it,
+and how to tell a sandbox that has drifted from a platform that has moved on.
 
 ---
 
@@ -166,77 +124,55 @@ $ ./scripts/verify.sh nc www.w3.org                   # the whole loop
 | `tests/test_agent_behavior.py` | a sandbox, minutes | The agent no longer researching, or no longer honouring the boundary. |
 | `scripts/verify.sh` | a sandbox | The approval path end to end. |
 
-`pytest` is the only requirement for the first line — no `pytest-asyncio`
-(coroutine tests run through a small `run()` helper) and no Pipecat (nothing
-under `tests/` imports the voice loop). Without `RESEARCH_SANDBOX` the live
-suites skip rather than fail.
+`pytest` is the only requirement for the first line — no `pytest-asyncio` and
+no Pipecat. Without `RESEARCH_SANDBOX` the live suites skip rather than fail.
 
-Two tests worth knowing by name, each written after the live run that exposed
-the bug it now guards:
-
-- `test_an_answer_for_the_wrong_host_opens_nothing` — the bot once asked about
-  one host and opened another.
-- `test_claiming_to_have_tried_a_source_never_contacted_is_flagged` — an answer
-  said it had attempted arXiv when the gateway saw no connection to it.
-
-`verify.sh` proves the boundary end to end: a source is blocked, the block
+`verify.sh` is the one that proves the point: a source is blocked, the block
 surfaces for approval, approving changes policy, and the sandbox can then reach
-it. The last step is the one that matters — an approval that reports success
-while the next fetch still fails is precisely the failure it exists to catch.
+it. That last step is what catches an approval reporting success while the next
+fetch still fails.
 
-Full detail, including how to run one area at a time, is in
+What each suite covers, and how to run one area at a time, is in
 [docs/verify-functionality.md](docs/verify-functionality.md).
 
 ---
 
 ## 3. Use it live
 
-The voice loop needs Pipecat and a speech profile, so it runs in its own
-environment. Everything up to this point runs on a bare `python3`:
+The voice loop is the only part that needs Pipecat and speech credentials:
 
 ```console
 $ uv venv && uv pip install "pipecat-ai[cartesia,deepgram,openai,runner,webrtc]"
 $ source .venv/bin/activate
-```
-
-**By voice:**
-
-```console
 $ python -m voice.bot -t webrtc --port 7860
 ```
 
-Open the printed URL and ask for something that needs sources it does not have:
+Open the printed URL and ask for something needing sources it does not have:
 
 > *"Research how NVFP4 compares to FP8 for inference throughput and accuracy
-> loss, and tell me which workloads each one suits. Check primary sources."*
+> loss, and tell me which workloads each one suits. Make sure to check
+> arxiv.org for primary sources, and don't just answer directly."*
 
-You get a short acknowledgement, then the agent works. When it reaches a source
-outside its policy the bot interrupts with one question at a time. Say **yes**
-and that host opens, read-only, for the binary that asked — and the agent is
-sent back to it. Say **no** and it records the source as unavailable and
-carries on.
+Naming a source and saying not to answer directly is doing real work. Without
+it the agent will often answer from what it already knows, reach nothing, and
+never hit the boundary — which looks like the recipe is broken when it is the
+question that was too easy.
 
-What to listen for:
+The agent works while you wait. When it reaches a source outside its policy the
+bot interrupts, one question at a time. Say **yes** and that host opens,
+read-only, for the binary that asked, and the agent is sent back to it. Say
+**no** and it records the source as unavailable and carries on.
 
-- The question names a host, not a URL spelled out character by character.
-- An ambiguous answer opens nothing and the question is asked again.
-- "No" is reported as left blocked, not as an error.
-- The voice loop stays responsive while the agent is working.
-
-**From a terminal instead** — no Pipecat, no speech credentials, same
-boundary:
+Same boundary from a terminal, with no Pipecat and no credentials:
 
 ```console
 $ python3 -m gatekeeper.console --sandbox nc
 $ python3 -m gatekeeper.console --sandbox nc --dry-run   # shows commands only
+$ ./scripts/reset-approvals.sh nc                        # clean slate between runs
 ```
 
-**Between runs**, put the sandbox back to a clean baseline, or the second demo
-is quieter than the first because the agent no longer has to ask:
-
-```console
-$ ./scripts/reset-approvals.sh nc
-```
+What to listen for, and what a healthy run looks like, is in
+[docs/verify-functionality.md](docs/verify-functionality.md#6-by-voice).
 
 ---
 

@@ -39,9 +39,14 @@ sys.path.insert(0, str(RECIPE))
 
 pytestmark = [pytest.mark.live, pytest.mark.slow]
 
+# Naming a source and forbidding a direct answer is load-bearing. A softer
+# phrasing gets answered from what the model already knows: no fetch, no
+# denial, nothing for the boundary to act on, and a test that passes or fails
+# for reasons unrelated to what it is checking.
 QUESTION = (
     "Research how NVFP4 compares to FP8 for inference throughput and accuracy "
-    "loss, and tell me which workloads each one suits. Check primary sources."
+    "loss, and tell me which workloads each one suits. Make sure to check "
+    "arxiv.org for primary sources, and don't just answer directly."
 )
 
 DRIVER = '''
