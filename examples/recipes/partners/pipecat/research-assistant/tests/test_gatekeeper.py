@@ -342,6 +342,31 @@ def test_denials_from_before_the_session_are_ignored():
     run(main())
 
 
+def test_resume_message_tells_the_agent_to_continue_not_restart():
+    """An approval nobody acts on is a no-op.
+
+    Observed live: the agent gave up on arxiv.org and finished its run seven
+    seconds before the operator approved it. The policy changed correctly and
+    changed nothing, because the agent was never told.
+    """
+    from voice.gatekeeper_worker import RESUME_TEMPLATE
+
+    message = RESUME_TEMPLATE.format(host="arxiv.org")
+    assert "arxiv.org is now open" in message
+    assert "do not start over" in message.lower()
+    assert "continue" in message.lower()
+
+
+def test_agent_instructions_forbid_burst_retry_and_early_finish():
+    root = Path(__file__).resolve().parents[1] / "agents/openclaw"
+    soul = (root / "SOUL.md").read_text().lower()
+    skill = (root / "skills/research-sweep/SKILL.md").read_text().lower()
+    for text in (soul, skill):
+        # A denial is not permanent, and a human cannot answer in 200ms.
+        assert "retry" in text
+        assert "opened" in text or "opens" in text
+
+
 def test_shipped_baseline_policy_scopes_binaries():
     """A baseline without `binaries` loads cleanly and grants nothing.
 

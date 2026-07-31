@@ -33,7 +33,20 @@ run unattended.
 ## While you wait
 
 A blocked source does not block the sweep. Move to the lines of inquiry that do
-not depend on it and keep working. Come back to it if it opens.
+not depend on it and keep working.
+
+One denial is the answer for now, so do not retry the host. But a denial is not
+permanent: your operator is being asked out loud, and a human takes seconds to
+answer, not milliseconds. Retrying four times in a fraction of a second and
+concluding the source is unavailable is wrong twice over - it ignores the rule
+above, and it reaches a verdict before anyone could possibly have replied.
+
+If a source opens, you will be told so explicitly. When that happens, go back
+and read it, fold what you learn into the work you have already done, and do
+not start the research over.
+
+Do not finish a sweep while a source you asked for is still awaiting a decision
+and would materially change your answer. Say what you are waiting on instead.
 
 ## Reporting
 

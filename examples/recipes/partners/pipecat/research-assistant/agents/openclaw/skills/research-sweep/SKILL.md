@@ -49,7 +49,14 @@ When you hit one:
 - **Do** note it and continue with other work.
 - **Do** state plainly, if asked, which source you are waiting on and what you
   wanted from it.
-- **Do not** retry the same host repeatedly. The first denial is the answer.
+- **Do** go back to a source when you are told it has been opened, folding what
+  you find into the work already done rather than starting again.
+- **Do not** retry the same host repeatedly. The first denial is the answer for
+  now, and a human needs seconds to respond. Four attempts in a fraction of a
+  second, then declaring the source unavailable, reaches a verdict before
+  anyone could have answered.
+- **Do not** end the sweep while waiting on a source that would materially
+  change the answer. Report what is outstanding instead.
 - **Do not** look for the same content on another host, a cache, an archive,
   a mirror, a proxy, or a search-engine snapshot.
 - **Do not** ask the operator to disable the policy, and do not attempt to

@@ -27,8 +27,28 @@ from pipecat.pipeline.job_decorator import job
 from pipecat.workers.base_worker import BaseWorker
 
 from gatekeeper.service import Gatekeeper
+from voice.config import AGENT_LOOP_WORKER
 
 GATEKEEPER_WORKER = "gatekeeper"
+
+# What the agent is told once a source it wanted is finally open.
+#
+# Without this the approval is wasted. Observed live: the agent hit arxiv.org
+# four times in 200ms, treated the denials as final, and finished its run seven
+# seconds before the operator said yes. The policy changed correctly and no
+# longer mattered, because nothing told the agent the world had moved.
+#
+# AgentWorker.run already does the right thing with this in both states: it
+# steers a run that is still going, and starts a fresh one in the same session
+# if the agent has already stopped. OpenClaw session continuity means a new run
+# still has the earlier research in context, so this reads as "carry on", not
+# "start over".
+RESUME_TEMPLATE = (
+    "{host} is now open to you. Fetch it and continue the research you were "
+    "already doing; do not start over, and do not repeat work you have "
+    "finished. If you had set that line of inquiry aside because it was "
+    "blocked, pick it back up now and fold what you find into your answer."
+)
 
 # The voice model is told how to speak the question and, more importantly,
 # what it must not do with it: it relays a decision, it does not make one.
@@ -113,16 +133,37 @@ class GatekeeperWorker(BaseWorker):
         asked = self._keeper.asked
         host = asked.host if asked else None
         outcome = await self._keeper.answer(text, host=asked_about)
+        applied = bool(outcome and outcome.applied)
+
+        if applied and host:
+            await self._resume_research(host)
+
         await self.send_job_response(
             message.job_id,
             {
                 "kind": "answered",
                 "host": host,
-                "applied": bool(outcome and outcome.applied),
+                "applied": applied,
+                "resumed": applied,
                 "status": outcome.detail if outcome else "Left it blocked.",
             },
             urgent=True,
         )
+
+    async def _resume_research(self, host: str) -> None:
+        """Send the agent back for a source that just opened."""
+        try:
+            job_id = await self.request_job(
+                AGENT_LOOP_WORKER,
+                name="run",
+                payload={"input": RESUME_TEMPLATE.format(host=host)},
+                timeout=None,
+            )
+            logger.info(f"Sent the agent back to {host} as job {job_id}")
+        except Exception as exc:
+            # An approval that opens a source the agent never revisits is a
+            # silent no-op, so this failing must be visible.
+            logger.exception(f"Approved {host} but could not resume research: {exc}")
 
     async def _consume_denials(self) -> None:
         try:

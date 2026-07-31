@@ -262,9 +262,15 @@ class VoiceBotWorker(PipelineWorker):
                     f"{PLAIN_SPOKEN_OUTPUT_INSTRUCTION}"
                 )
             elif response.get("applied"):
+                resumed = (
+                    " The agent has gone back to that source and is still working, "
+                    "so do not present anything as a final answer yet."
+                    if response.get("resumed")
+                    else ""
+                )
                 content = (
-                    f"{response.get('host')} is now open to the research agent, "
-                    "which has resumed. Say so in one short sentence. "
+                    f"{response.get('host')} is now open to the research agent. "
+                    f"Say so in one short sentence.{resumed} "
                     f"{PLAIN_SPOKEN_OUTPUT_INSTRUCTION}"
                 )
             else:
@@ -329,11 +335,15 @@ class VoiceBotWorker(PipelineWorker):
             if finished_active:
                 self._active_job_id = None
             content = (
-                "Agent-loop result is ready. Turn it into one concise spoken "
-                "answer for the user, keeping any specific codes, numbers, or "
-                "names accurate. If the result says it cannot determine the "
-                "answer, state that limitation clearly. Do not add a follow-up "
-                "question, offer, or call to action. "
+                "The research answer is ready. Deliver it now, in full enough "
+                "detail to be useful, keeping any specific numbers, model "
+                "names, and sources accurate. Deliver it even if you just "
+                "spoke about a source being approved or blocked: those are "
+                "asides, and this is the thing the user actually asked for. "
+                "Never let it go unspoken. If the result says it could not "
+                "determine something, or names a source it could not consult, "
+                "state that plainly. Do not add a follow-up question, offer, "
+                "or call to action. "
                 f"{PLAIN_SPOKEN_OUTPUT_INSTRUCTION} "
                 f"Result: {response.get('summary', response)}"
             )
