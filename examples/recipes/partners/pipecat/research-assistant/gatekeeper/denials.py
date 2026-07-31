@@ -20,15 +20,28 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-# [1785462960.759] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED
-#     /usr/bin/curl(74441) -> arxiv.org:443 [policy:- engine:opa] [reason:...]
-DENIAL = re.compile(
+# The gateway emits NET:OPEN in two shapes. Research fetches name the calling
+# binary and the matched policy:
+#
+#   NET:OPEN [MED] DENIED /usr/bin/curl(74441) -> arxiv.org:443
+#       [policy:- engine:opa] [reason:endpoint arxiv.org:443 not in policy...]
+#   NET:OPEN [INFO] ALLOWED /usr/local/bin/node(364) -> arxiv.org:443
+#       [policy:allow_arxiv_org_443 engine:opa]
+#
+# The sandbox's own inference traffic uses a bare form with neither:
+#
+#   NET:OPEN [INFO] ALLOWED inference.local:443
+#
+# One pattern reads both, so an allowed fetch is as visible as a blocked one.
+# That matters: knowing what the agent *did* read is what makes it possible to
+# check an answer's cited sources against reality.
+NET_EVENT = re.compile(
     r"\[(?P<ts>[\d.]+)\]\s+"
     r"\[(?P<stream>\w+)\]\s+"
     r"\[OCSF\s*\]\s+\[ocsf\]\s+"
-    r"NET:OPEN\s+\[(?P<severity>\w+)\]\s+DENIED\s+"
-    r"(?P<binary>\S+?)\((?P<pid>\d+)\)\s+->\s+"
-    r"(?P<host>[^\s:]+):(?P<port>\d+)"
+    r"NET:OPEN\s+\[(?P<severity>\w+)\]\s+(?P<disposition>ALLOWED|DENIED)\s+"
+    r"(?:(?P<binary>/\S+?)\((?P<pid>\d+)\)\s+->\s+)?"
+    r"(?P<host>[A-Za-z0-9._-]+):(?P<port>\d+)"
     r"(?:.*?\[reason:(?P<reason>[^\]]*)\])?"
 )
 
@@ -58,20 +71,58 @@ class Denial:
         return f"The research agent tried to reach {self.host} and was blocked."
 
 
-def parse_denial(line: str) -> Denial | None:
-    """Parse one log line, or return None if it is not a denial."""
-    match = DENIAL.search(line)
+@dataclass(frozen=True)
+class NetworkEvent:
+    """One connection attempt the gateway saw, allowed or denied."""
+
+    host: str
+    port: int
+    allowed: bool
+    timestamp: float
+    binary: str = ""
+    pid: int = 0
+    severity: str = "INFO"
+    reason: str = ""
+
+    @property
+    def endpoint(self) -> str:
+        return f"{self.host}:{self.port}"
+
+    def as_denial(self) -> Denial | None:
+        if self.allowed:
+            return None
+        return Denial(
+            host=self.host,
+            port=self.port,
+            binary=self.binary,
+            pid=self.pid,
+            timestamp=self.timestamp,
+            severity=self.severity,
+            reason=self.reason,
+        )
+
+
+def parse_network_event(line: str) -> NetworkEvent | None:
+    """Parse one log line into a network event, or None if it is not one."""
+    match = NET_EVENT.search(line)
     if match is None:
         return None
-    return Denial(
+    return NetworkEvent(
         host=match["host"],
         port=int(match["port"]),
-        binary=match["binary"],
-        pid=int(match["pid"]),
+        allowed=match["disposition"] == "ALLOWED",
         timestamp=float(match["ts"]),
+        binary=match["binary"] or "",
+        pid=int(match["pid"] or 0),
         severity=match["severity"],
         reason=(match["reason"] or "").strip(),
     )
+
+
+def parse_denial(line: str) -> Denial | None:
+    """Parse one log line, or return None if it is not a denial."""
+    event = parse_network_event(line)
+    return event.as_denial() if event is not None else None
 
 
 class DenialWatcher:
@@ -115,11 +166,18 @@ class DenialWatcher:
         except asyncio.TimeoutError:
             self._process.kill()
 
-    async def denials(self) -> AsyncIterator[Denial]:
+    async def network_events(self) -> AsyncIterator[NetworkEvent]:
+        """Every connection the gateway saw, allowed or denied."""
         if self._process is None or self._process.stdout is None:
             raise RuntimeError("Watcher is not started; use it as a context manager.")
         async for raw in self._process.stdout:
-            denial = parse_denial(raw.decode("utf-8", "replace"))
+            event = parse_network_event(raw.decode("utf-8", "replace"))
+            if event is not None:
+                yield event
+
+    async def denials(self) -> AsyncIterator[Denial]:
+        async for event in self.network_events():
+            denial = event.as_denial()
             if denial is not None:
                 yield denial
 

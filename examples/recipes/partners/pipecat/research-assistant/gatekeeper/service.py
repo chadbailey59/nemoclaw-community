@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .approver import ApprovalOutcome, PolicyApprover, UnsafeEndpoint
+from .audit import SourceLedger
 from .denials import Deduplicator, Denial, DenialWatcher, ResearchScope
 
 Choice = Literal["approved", "rejected", "unclear"]
@@ -101,6 +102,9 @@ class Gatekeeper:
         # session, and re-asking them buries the live one.
         self.since = since
         self.events: asyncio.Queue[GatekeeperEvent] = asyncio.Queue()
+        # What the agent actually reached, so an answer's cited sources can be
+        # checked against reality rather than taken on trust.
+        self.ledger = SourceLedger()
         self._asked: Question | None = None
         self._waiting: list[Question] = []
         self._seen = Deduplicator()
@@ -116,9 +120,23 @@ class Gatekeeper:
         return self._asked
 
     async def run(self) -> None:
-        """Consume denials until the watcher stops."""
-        async for denial in self.watcher.denials():
-            await self._handle(denial)
+        """Consume gateway traffic until the watcher stops.
+
+        Allowed fetches are recorded and otherwise ignored; denials become
+        questions. Watching both is what makes the ledger possible.
+        """
+        events = getattr(self.watcher, "network_events", None)
+        if events is None:  # a watcher that only yields denials
+            async for denial in self.watcher.denials():
+                self.ledger.record(denial.host, allowed=False)
+                await self._handle(denial)
+            return
+
+        async for event in events():
+            self.ledger.record(event.host, allowed=event.allowed)
+            denial = event.as_denial()
+            if denial is not None:
+                await self._handle(denial)
 
     async def _handle(self, denial: Denial) -> None:
         # Replayed history is not a live request for permission.

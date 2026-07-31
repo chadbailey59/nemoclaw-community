@@ -113,6 +113,32 @@ blocked, the block surfaces for approval, approving changes policy, and the
 sandbox can then reach it. Full detail in
 [docs/verify-functionality.md](docs/verify-functionality.md).
 
+## Checking the answer against what was actually read
+
+An agent's answer is not evidence of what it consulted. Two observed cases:
+one run cited arXiv after making no network request at all, and another said
+it had *attempted* arXiv when the gateway saw no connection to it.
+
+Neither is visible in the transcript. Both are plainly visible at the gateway,
+which the gatekeeper is already watching. So it also records every allowed
+fetch, and audits each final answer against that record:
+
+```text
+cited      : ('arxiv.org',)
+consulted  : ()
+unverified : ('arxiv.org',)
+warning    : Heads up: the answer refers to arxiv.org, but the agent never
+             actually tried to reach it during this run.
+```
+
+The warning is deliberately narrow. Naming a source you genuinely tried and
+were denied is the honest reporting this recipe asks for, and stays silent.
+Only a source the agent never contacted at all is worth interrupting a
+listener over.
+
+It is a reporting aid, not a security control: it sees which hosts were
+contacted, never what came back.
+
 ## What an approval grants
 
 One host and port, **read-only**, for **one binary**, for the life of the
@@ -143,7 +169,8 @@ drop them. Recreating the sandbox resets policy to the baseline.
 ## Layout
 
 ```text
-gatekeeper/     host-side only. Watches denials, asks, applies approvals.
+gatekeeper/     host-side only. Watches the gateway, asks, applies approvals,
+                and audits answers against what was actually fetched.
 voice/          the Pipecat voice loop and its workers.
 agents/openclaw/  SOUL.md, the research-sweep skill, baseline policy.
 scripts/        setup, verify, teardown.

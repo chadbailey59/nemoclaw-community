@@ -7,21 +7,36 @@ Nothing in this package runs inside the sandbox. That is the point.
 """
 
 from .approver import ApprovalOutcome, PolicyApprover, UnsafeEndpoint, validate_host
-from .denials import Deduplicator, Denial, DenialWatcher, ResearchScope, parse_denial
+from .audit import Audit, SourceLedger, audit_answer, cited_hosts
+from .denials import (
+    Deduplicator,
+    Denial,
+    DenialWatcher,
+    NetworkEvent,
+    ResearchScope,
+    parse_denial,
+    parse_network_event,
+)
 from .service import Gatekeeper, GatekeeperEvent, Question, interpret
 
 __all__ = [
     "ApprovalOutcome",
+    "Audit",
     "Deduplicator",
     "Denial",
     "DenialWatcher",
     "Gatekeeper",
     "GatekeeperEvent",
+    "NetworkEvent",
     "PolicyApprover",
     "Question",
     "ResearchScope",
+    "SourceLedger",
     "UnsafeEndpoint",
+    "audit_answer",
+    "cited_hosts",
     "interpret",
     "parse_denial",
+    "parse_network_event",
     "validate_host",
 ]

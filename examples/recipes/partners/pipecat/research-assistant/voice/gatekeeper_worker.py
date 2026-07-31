@@ -26,6 +26,7 @@ from pipecat.bus.messages import BusJobRequestMessage
 from pipecat.pipeline.job_decorator import job
 from pipecat.workers.base_worker import BaseWorker
 
+from gatekeeper.audit import audit_answer
 from gatekeeper.service import Gatekeeper
 from voice.config import AGENT_LOOP_WORKER
 
@@ -110,6 +111,28 @@ class GatekeeperWorker(BaseWorker):
                 self._watcher.cancel()
                 with suppress(asyncio.CancelledError):
                     await self._watcher
+
+    @job(name="audit")
+    async def audit(self, message: BusJobRequestMessage) -> None:
+        """Check an answer's cited sources against what was actually fetched."""
+        payload = message.payload or {}
+        result = audit_answer(str(payload.get("answer", "")), self._keeper.ledger)
+        if not result.clean:
+            logger.warning(
+                f"Answer credits sources never fetched: {', '.join(result.unverified)}"
+            )
+        await self.send_job_response(
+            message.job_id,
+            {
+                "kind": "audit",
+                "clean": result.clean,
+                "warning": result.spoken_warning(),
+                "cited": list(result.cited),
+                "consulted": list(result.consulted),
+                "unverified": list(result.unverified),
+            },
+            urgent=True,
+        )
 
     @job(name="answer")
     async def answer(self, message: BusJobRequestMessage) -> None:

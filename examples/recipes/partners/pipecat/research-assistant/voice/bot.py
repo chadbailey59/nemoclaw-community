@@ -255,6 +255,23 @@ class VoiceBotWorker(PipelineWorker):
 
         if message.source == GATEKEEPER_WORKER:
             response = message.response or {}
+            if response.get("kind") == "audit":
+                # Only speak up when the answer credits something it never
+                # fetched. A clean audit is not worth a sentence.
+                if response.get("clean", True):
+                    return
+                content = (
+                    "Before the user acts on that answer, tell them this in one "
+                    f"short sentence: {response.get('warning', '')} "
+                    f"{PLAIN_SPOKEN_OUTPUT_INSTRUCTION}"
+                )
+                await self.queue_frame(
+                    LLMMessagesAppendFrame(
+                        messages=[{"role": "developer", "content": content}],
+                        run_llm=True,
+                    )
+                )
+                return
             if response.get("kind") == "no_question":
                 content = (
                     "There was no source waiting on approval, so nothing "
@@ -354,6 +371,16 @@ class VoiceBotWorker(PipelineWorker):
                 run_llm=True,
             )
         )
+
+        # A final research answer gets checked against what was actually
+        # fetched. The agent's own account of its sources is not evidence.
+        if kind == "final":
+            await self.request_job(
+                GATEKEEPER_WORKER,
+                name="audit",
+                payload={"answer": str(response.get("summary", ""))},
+                timeout=None,
+            )
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
