@@ -13,21 +13,69 @@ recipe puts the same boundary on a voice channel, so it still works when you
 are not at the keyboard — which is exactly when a twenty-minute research sweep
 is running.
 
-```text
-  you ──voice──┐                                    ┌── NemoClaw sandbox
-               │                                    │
-        ┌──────▼──────┐   blocked source     ┌──────▼──────┐
-        │  voice loop │◄─────────────────────│  OpenShell  │  research agent
-        │  (Pipecat)  │                      │   gateway   │  (OpenClaw)
-        └──────┬──────┘   OCSF denial        └──────▲──────┘
-               │                                    │
-               └──"yes"──► gatekeeper ──openshell───┘
-                           (host-side only)   policy update
+```mermaid
+%%{init: {'theme': 'default', 'flowchart': {'nodeSpacing': 45, 'rankSpacing': 70, 'curve': 'basis', 'padding': 18}, 'themeVariables': {'fontSize': '13px'}}}%%
+flowchart LR
+
+    you(["You\n(speaking)"])
+    sources["Research sources\narxiv.org, vendor docs, ..."]
+
+    subgraph host["Host machine"]
+        direction TB
+
+        subgraph pipecat["Pipecat voice UI"]
+            direction TB
+            voice["Voice loop\nSTT + LLM + TTS"]
+            worker["Agent worker\nGateway client"]
+        end
+
+        keeper["Gatekeeper\nreads OCSF, asks, approves"]
+        cli["openshell CLI\nthe only thing that can\nwiden the policy"]
+
+        subgraph supervisor["OpenShell sandbox supervisor"]
+            direction TB
+            gateway["OpenShell gateway\ndeny-by-default egress\nemits OCSF NET:OPEN"]
+
+            subgraph sandbox["OpenShell sandbox"]
+                agent["OpenClaw agent\n+ research-sweep skill\n+ SOUL.md"]
+            end
+        end
+    end
+
+    you <-->|"speech"| voice
+    voice -->|"start / steer a sweep"| worker
+    worker <-->|"Gateway websocket"| agent
+    agent -->|"fetch a source"| gateway
+    gateway -->|"allowed"| sources
+    gateway -.->|"DENIED + allowed events"| keeper
+    keeper -->|"one question at a time"| voice
+    voice -->|"your yes or no"| keeper
+    keeper -->|"approve: host + binary,\nread-only"| cli
+    cli -->|"policy update"| gateway
+    keeper -->|"source is open,\ngo back to it"| worker
+
+    classDef sandboxNode fill:#76b900,stroke:#5a8f00,color:#fff,stroke-width:2px
+    classDef hostNode fill:#f5f5f5,stroke:#999,color:#1a1a1a
+    classDef gate fill:#1a1a1a,stroke:#76b900,color:#fff,stroke-width:2px
+    class agent sandboxNode
+    class voice,worker,keeper,cli hostNode
+    class gateway gate
 ```
 
-The agent can *ask* for more reach by trying to fetch something. It can never
-*grant* it: `openshell` lives on the host, is not installed in the sandbox, and
-is not reachable from it. No text the model produces reaches the approval path.
+Two things that diagram is drawing:
+
+**The agent is inside, the approval is outside.** OpenClaw runs in the
+OpenShell sandbox and reaches the network only through the gateway. The
+`openshell` CLI that can widen that policy lives on the host and is not in the
+sandbox image or reachable from it. The agent *asks* for more reach by trying
+to fetch something; it can never *grant* it. That split is NemoClaw's, not this
+recipe's — what the recipe adds is a voice channel across it, and no text the
+model produces reaches the approval path.
+
+**The voice UI talks to both sides.** It drives the agent through the Gateway
+websocket, and it drives the approval through the gatekeeper. Those are
+separate paths on purpose: the loop that carries your "yes" never passes
+through the sandbox.
 
 Work through the three sections below in order. The first is the one people
 skip and then spend an afternoon debugging.
@@ -44,8 +92,12 @@ code. It can stop working completely without a single unit test failing.
 **You need:**
 
 - NemoClaw with a sandbox running the OpenClaw agent (`nemoclaw onboard`).
-- `openshell` on the host `PATH`. **Do not install it in the sandbox** — that
-  asymmetry is the whole security model.
+- `openshell` on the host `PATH`. `nemoclaw onboard` puts it there and leaves
+  it out of the sandbox image, which is the default posture this recipe relies
+  on rather than something you have to arrange. You would only lose it by
+  building a custom image that adds `openshell`, or by mounting the host binary
+  in. `test_openshell_is_not_reachable_from_inside_the_sandbox` checks it still
+  holds.
 - Python 3.12+. Sections 1 and 2 need nothing beyond `pytest`; only the voice
   loop in section 3 needs Pipecat and speech credentials (see `.env.example`).
 

@@ -10,9 +10,22 @@ Everything below is what makes that true.
 
 ## The asymmetry
 
-`openshell` is installed on the host and is **not** installed in the sandbox,
-and the sandbox has no network route to it. That is the entire security
-posture in one sentence.
+`openshell` is installed on the host and is **not** in the sandbox image, and
+the sandbox has no network route to it. That is the entire security posture in
+one sentence.
+
+Worth being clear about the ownership: this is NemoClaw's default after
+`nemoclaw onboard`, not something this recipe establishes or could establish.
+The recipe inherits the split and adds a voice channel across it. Everything
+below describes a property being *relied on*, and the conformance suite exists
+because a recipe that silently loses an inherited guarantee is worse than one
+that never had it.
+
+You would only lose it deliberately: by building a sandbox image that installs
+`openshell` (`nemoclaw onboard --from`), by mounting the host binary into the
+sandbox, or by opening a network path to a host-side service that can reach it.
+`test_openshell_is_not_reachable_from_inside_the_sandbox` and
+`test_the_sandbox_cannot_reach_the_host_gateway_directly` check both halves.
 
 | | Sandbox | Host |
 | --- | --- | --- |
